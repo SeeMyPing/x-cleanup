@@ -61,7 +61,7 @@ You only need the credentials when running with `-go`. A dry run doesn't call th
 
 ### Prebuilt binaries
 
-Download the binary for your platform from the [Releases](https://github.com/seemyping/x-cleanup/releases) page:
+Download the binary for your platform from the [Releases](https://github.com/SeeMyPing/x-cleanup/releases) page:
 
 | Platform              | File                          |
 | --------------------- | ----------------------------- |
@@ -222,9 +222,13 @@ X_API_BASE=http://localhost:8080/2 ./x-cleanup -go ./twitter-archive
 - [`.github/workflows/docker.yml`](.github/workflows/docker.yml) builds the multi-arch image and pushes it to GHCR on `main` and on `v*` tags, with provenance and SBOM attestations.
 - [`.github/workflows/pr.yml`](.github/workflows/pr.yml) runs the tests on pull requests. A maintainer has to approve each run first (`pr-tests` environment with required reviewers). It has no secrets and a read-only token.
 
-To publish a release:
+- [`.github/workflows/release.yml`](.github/workflows/release.yml) creates a release on demand from `main`. It works out the next version, runs the tests, creates the tag, then starts *Build* and *Docker* on that tag.
+
+To publish a release, run the **Release** workflow from the Actions tab, or from the command line:
 
 ```sh
-git tag v1.0.0
-git push origin v1.0.0
+gh workflow run release.yml -f bump=patch     # or minor / major
+gh workflow run release.yml -f version=v2.0.0 # explicit version
 ```
+
+Pushing a tag by hand (`git tag v1.2.3 && git push origin v1.2.3`) also still works.

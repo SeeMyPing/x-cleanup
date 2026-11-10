@@ -1,0 +1,105 @@
+name: Release
+
+# On-demand release: computes the next version, runs the tests, creates the
+# tag on the current main commit, then starts the Build and Docker workflows on
+# that tag (they publish the GitHub release, the binaries and the image).
+#
+# Tags created with GITHUB_TOKEN do not trigger `push` workflows, but
+# `workflow_dispatch` events do, hence the explicit `gh workflow run`.
+#
+# Security:
+# - Only users with write access can dispatch a workflow.
+# - The `release` environment only allows the `main` branch.
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Version bump (ignored if "version" is set)
+        type: choice
+        options: [patch, minor, major]
+        default: patch
+      version:
+        description: Explicit version, e.g. v1.4.0 (optional)
+        type: string
+        required: false
+
+permissions: {}
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      contents: write # create the tag
+      actions: write # dispatch the Build and Docker workflows
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - name: Test
+        run: |
+          go vet ./...
+          go test -race ./...
+
+      - name: Compute version
+        id: version
+        env:
+          BUMP: ${{ inputs.bump }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          latest=$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n1)
+          latest=${latest:-v0.0.0}
+          if [ -n "$VERSION" ]; then
+            next=$VERSION
+          else
+            IFS=. read -r major minor patch <<< "${latest#v}"
+            case "$BUMP" in
+              major) next="v$((major + 1)).0.0" ;;
+              minor) next="v${major}.$((minor + 1)).0" ;;
+              patch) next="v${major}.${minor}.$((patch + 1))" ;;
+              *) echo "::error::invalid bump: $BUMP"; exit 1 ;;
+            esac
+          fi
+          if ! [[ "$next" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::invalid version '$next' (expected vMAJOR.MINOR.PATCH)"; exit 1
+          fi
+          if git rev-parse -q --verify "refs/tags/$next" > /dev/null; then
+            echo "::error::tag $next already exists"; exit 1
+          fi
+          if [ "$(printf '%s\n%s\n' "$latest" "$next" | sort -V | tail -n1)" != "$next" ] || [ "$latest" = "$next" ]; then
+            echo "::error::$next is not greater than the latest release $latest"; exit 1
+          fi
+          echo "Latest: $latest → next: $next"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+
+      - name: Create tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: gh api "repos/$GITHUB_REPOSITORY/git/refs" -f ref="refs/tags/$TAG" -f sha="$GITHUB_SHA"
+
+      - name: Start Build and Docker workflows on the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh workflow run build.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+          gh workflow run docker.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"
+          {
+            echo "### Release $TAG"
+            echo "Tag created on \`${GITHUB_SHA::7}\`. Build and Docker workflows started."
+            echo "- Release: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/releases/tag/$TAG (available once Build finishes)"
+          } >> "$GITHUB_STEP_SUMMARY"
