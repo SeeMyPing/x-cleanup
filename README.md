@@ -220,6 +220,7 @@ X_API_BASE=http://localhost:8080/2 ./x-cleanup -go ./twitter-archive
 
 - [`.github/workflows/build.yml`](.github/workflows/build.yml) runs the tests, then builds the four binaries. When you push a `v*` tag, it publishes a GitHub release.
 - [`.github/workflows/docker.yml`](.github/workflows/docker.yml) builds the multi-arch image and pushes it to GHCR on `main` and on `v*` tags, with provenance and SBOM attestations.
+- [`.github/workflows/pr.yml`](.github/workflows/pr.yml) runs the tests on pull requests. A maintainer has to approve each run first (`pr-tests` environment with required reviewers). It has no secrets and a read-only token.
 
 To publish a release:
 

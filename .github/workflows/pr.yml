@@ -1,0 +1,39 @@
+name: PR tests
+
+# Runs the tests on pull requests, but only after a maintainer approves the run.
+#
+# Security model:
+# - `pull_request` (NEVER `pull_request_target`): PR code runs with a read-only
+#   token and no access to repository secrets, even for forks.
+# - The job targets the `pr-tests` environment, which has "Required reviewers"
+#   configured in Settings → Environments. Every run (including each new push
+#   to the PR) waits for an explicit approval before any PR code executes.
+# - Never add secrets or variables to the `pr-tests` environment: they would
+#   be readable by the PR code once approved.
+on:
+  pull_request:
+    branches: [main, develop]
+
+permissions: {}
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: pr-tests
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: go vet ./...
+      - run: go test -race ./...
