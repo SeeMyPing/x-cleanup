@@ -15,10 +15,10 @@ Delete your tweets and remove your likes on X, using the official data archive a
 
 X's API can't list all of your old tweets and likes, but your archive does. x-cleanup reads the tweet and like IDs from the archive. Then it calls:
 
-| What   | Endpoint                                    |
-| ------ | ------------------------------------------- |
-| Tweets | `DELETE /2/tweets/:id`                      |
-| Likes  | `DELETE /2/users/:your_id/likes/:tweet_id`  |
+| What   | Endpoint                                   |
+| ------ | ------------------------------------------ |
+| Tweets | `DELETE /2/tweets/:id`                     |
+| Likes  | `DELETE /2/users/:your_id/likes/:tweet_id` |
 
 Every successful ID is appended to a `done_*.txt` file, so it's never sent twice.
 
@@ -63,12 +63,12 @@ You only need the credentials when running with `-go`. A dry run doesn't call th
 
 Download the binary for your platform from the [Releases](https://github.com/seemyping/x-cleanup/releases) page:
 
-| Platform              | File                           |
-| --------------------- | ------------------------------ |
-| Windows (64-bit)      | `x-cleanup-windows-amd64.exe`  |
-| Linux (64-bit)        | `x-cleanup-linux-amd64`        |
-| Linux (ARM64)         | `x-cleanup-linux-arm64`        |
-| macOS (Apple Silicon) | `x-cleanup-darwin-arm64`       |
+| Platform              | File                          |
+| --------------------- | ----------------------------- |
+| Windows (64-bit)      | `x-cleanup-windows-amd64.exe` |
+| Linux (64-bit)        | `x-cleanup-linux-amd64`       |
+| Linux (ARM64)         | `x-cleanup-linux-arm64`       |
+| macOS (Apple Silicon) | `x-cleanup-darwin-arm64`      |
 
 Each release includes a `SHA256SUMS` file for checking the downloads.
 
@@ -108,12 +108,12 @@ x-cleanup [options] <archive-dir>
 
 Options must come **before** the archive directory.
 
-| Option              | Default | Description                                          |
-| ------------------- | ------- | ---------------------------------------------------- |
-| `-go`               | off     | Actually delete. Without it, the run is a dry run.   |
-| `-only tweets\|likes` | both  | Process only tweets or only likes.                   |
-| `-limit N`          | `0`     | Process at most N items per type (`0` = no limit).   |
-| `-state-dir DIR`    | `.`     | Where to write `done_*.txt` and `errors.log`.        |
+| Option                | Default | Description                                        |
+| --------------------- | ------- | -------------------------------------------------- |
+| `-go`                 | off     | Actually delete. Without it, the run is a dry run. |
+| `-only tweets\|likes` | both    | Process only tweets or only likes.                 |
+| `-limit N`            | `0`     | Process at most N items per type (`0` = no limit). |
+| `-state-dir DIR`      | `.`     | Where to write `done_*.txt` and `errors.log`.      |
 
 ### Recommended workflow
 
@@ -170,36 +170,36 @@ These are estimates. The actual pace follows the rate-limit headers X returns.
 
 All files are written to `-state-dir`, which defaults to the current directory.
 
-| File               | Content                                                                  |
-| ------------------ | ------------------------------------------------------------------------ |
-| `done_tweets.txt`  | IDs of tweets deleted or already gone, one per line.                     |
-| `done_likes.txt`   | IDs of tweets un-liked or already gone, one per line.                    |
-| `errors.log`       | Failed items, tab-separated: time, type, ID, HTTP status, response body. |
+| File              | Content                                                                  |
+| ----------------- | ------------------------------------------------------------------------ |
+| `done_tweets.txt` | IDs of tweets deleted or already gone, one per line.                     |
+| `done_likes.txt`  | IDs of tweets un-liked or already gone, one per line.                    |
+| `errors.log`      | Failed items, tab-separated: time, type, ID, HTTP status, response body. |
 
 Failed items aren't added to `done_*.txt`, so the next run tries them again. To start over from scratch, delete the `done_*.txt` files.
 
 ## Error handling
 
-| Situation                                    | Behaviour                                                                 |
-| -------------------------------------------- | ------------------------------------------------------------------------- |
-| `404 Not Found`                              | Already deleted or unavailable. Counted as done.                          |
-| `429 Too Many Requests`                      | Waits until the quota window resets, then continues.                      |
-| `5xx` or network error                       | Retries up to 5 times with increasing back-off.                           |
-| `401 Unauthorized`                           | **Stops**: invalid keys. Check the 4 environment variables.               |
-| `403 Forbidden`                              | **Stops**: the app isn't *Read and write*, or the token predates the change. Regenerate the Access Token. |
-| `402` or a response mentioning credits       | **Stops**: API credits are exhausted. Top up on console.x.com and run again. |
-| Any other error                              | Logged to `errors.log`. Processing continues.                             |
+| Situation                              | Behaviour                                                                                                 |
+| -------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| `404 Not Found`                        | Already deleted or unavailable. Counted as done.                                                          |
+| `429 Too Many Requests`                | Waits until the quota window resets, then continues.                                                      |
+| `5xx` or network error                 | Retries up to 5 times with increasing back-off.                                                           |
+| `401 Unauthorized`                     | **Stops**: invalid keys. Check the 4 environment variables.                                               |
+| `403 Forbidden`                        | **Stops**: the app isn't *Read and write*, or the token predates the change. Regenerate the Access Token. |
+| `402` or a response mentioning credits | **Stops**: API credits are exhausted. Top up on console.x.com and run again.                              |
+| Any other error                        | Logged to `errors.log`. Processing continues.                                                             |
 
 When a fatal error happens in one worker, both workers stop immediately.
 
 ### Exit codes
 
-| Code  | Meaning                                                 |
-| ----- | ------------------------------------------------------- |
-| `0`   | Finished (some items may be listed in `errors.log`).    |
-| `1`   | Fatal error (credentials, permissions, credits, …).     |
-| `2`   | Invalid command line.                                   |
-| `130` | Interrupted (Ctrl+C or SIGTERM). Run again to resume.   |
+| Code  | Meaning                                               |
+| ----- | ----------------------------------------------------- |
+| `0`   | Finished (some items may be listed in `errors.log`).  |
+| `1`   | Fatal error (credentials, permissions, credits, …).   |
+| `2`   | Invalid command line.                                 |
+| `130` | Interrupted (Ctrl+C or SIGTERM). Run again to resume. |
 
 ## Development
 
@@ -219,7 +219,7 @@ X_API_BASE=http://localhost:8080/2 ./x-cleanup -go ./twitter-archive
 ### CI
 
 - [`.github/workflows/build.yml`](.github/workflows/build.yml) runs the tests, then builds the four binaries. When you push a `v*` tag, it publishes a GitHub release.
-- [`.github/workflows/docker.yml`](.github/workflows/docker.yml) builds the multi-arch image and pushes it to GHCR on `main` and on `v*` tags.
+- [`.github/workflows/docker.yml`](.github/workflows/docker.yml) builds the multi-arch image and pushes it to GHCR on `main` and on `v*` tags, with provenance and SBOM attestations.
 
 To publish a release:
 
