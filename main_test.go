@@ -61,6 +61,50 @@ func writeArchive(t *testing.T, nTweets, nLikes int) string {
 	return dir
 }
 
+// Community posts live in community-tweet.js, not tweets.js: they must be included, without duplicates.
+func TestTweetIDsIncludesCommunityPosts(t *testing.T) {
+	archive := writeArchive(t, 3, 0)
+	os.WriteFile(filepath.Join(archive, "data", "community-tweet.js"),
+		[]byte(`window.YTD.community_tweet.part0 = [{"tweet":{"id_str":"500","in_reply_to_status_id_str":"9"}},{"tweet":{"id_str":"2"}}]`), 0o644)
+	ids, err := tweetIDs(archive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]int{}
+	for _, id := range ids {
+		got[id]++
+	}
+	if len(ids) != 4 || got["500"] != 1 || got["2"] != 1 {
+		t.Fatalf("got %v, want 1, 2, 3 and 500 exactly once each", ids)
+	}
+}
+
+// -only replies keeps original tweets, retweets and replies in your own threads.
+func TestReplyIDsOnlyRepliesToOthers(t *testing.T) {
+	archive := writeArchive(t, 0, 0) // account id = 42
+	data := filepath.Join(archive, "data")
+	os.WriteFile(filepath.Join(data, "tweets.js"), []byte(`window.YTD.tweets.part0 = [
+		{"tweet":{"id_str":"1"}},
+		{"tweet":{"id_str":"2","in_reply_to_status_id_str":"100","in_reply_to_user_id_str":"7"}},
+		{"tweet":{"id_str":"3","in_reply_to_status_id_str":"1","in_reply_to_user_id_str":"42"}},
+		{"tweet":{"id_str":"4","full_text":"RT @someone: hi"}}
+	]`), 0o644)
+	os.WriteFile(filepath.Join(data, "community-tweet.js"), []byte(`window.YTD.community_tweet.part0 = [
+		{"tweet":{"id_str":"5","in_reply_to_status_id_str":"200","in_reply_to_user_id_str":"8"}}
+	]`), 0o644)
+
+	jobs, err := buildJobs(archive, "http://x/2", "replies")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 1 || jobs[0].kind != "replies" || jobs[0].state != "tweets" {
+		t.Fatalf("want a single 'replies' job sharing the tweets state, got %+v", jobs)
+	}
+	if got := strings.Join(jobs[0].ids, ","); got != "2,5" {
+		t.Fatalf("replies = %s, want 2,5", got)
+	}
+}
+
 // Fake X server: quota of 3 calls per 1 s window, per endpoint, + 429 when exceeded.
 type fakeX struct {
 	mu        sync.Mutex

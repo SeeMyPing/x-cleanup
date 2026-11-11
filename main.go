@@ -93,17 +93,33 @@ func accountID(archive string) (string, error) {
 	return unquote(v.Account.AccountID), nil
 }
 
-func tweetIDs(archive string) ([]string, error) {
-	items, err := loadYTD(archive, "tweets")
-	if err != nil {
-		return nil, err
+type post struct {
+	id          string
+	reply       bool
+	replyToUser string // author of the tweet replied to (empty if unknown)
+}
+
+// posts returns all your posts: tweets.js (tweets, replies, retweets) plus
+// community-tweet.js (posts and replies made in Communities, which X stores
+// separately). Duplicates are removed.
+func posts(archive string) ([]post, error) {
+	var items []json.RawMessage
+	for _, name := range []string{"tweets", "community-tweet"} {
+		chunk, err := loadYTD(archive, name)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, chunk...)
 	}
-	ids := make([]string, 0, len(items))
+	out := make([]post, 0, len(items))
+	seen := make(map[string]bool, len(items))
 	for _, it := range items {
 		var v struct {
 			Tweet struct {
-				IDStr string          `json:"id_str"`
-				ID    json.RawMessage `json:"id"`
+				IDStr           string          `json:"id_str"`
+				ID              json.RawMessage `json:"id"`
+				InReplyToStatus string          `json:"in_reply_to_status_id_str"`
+				InReplyToUser   string          `json:"in_reply_to_user_id_str"`
 			} `json:"tweet"`
 		}
 		if err := json.Unmarshal(it, &v); err != nil {
@@ -113,8 +129,43 @@ func tweetIDs(archive string) ([]string, error) {
 		if id == "" {
 			id = unquote(v.Tweet.ID)
 		}
-		if id != "" {
-			ids = append(ids, id)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		out = append(out, post{
+			id:          id,
+			reply:       v.Tweet.InReplyToStatus != "",
+			replyToUser: v.Tweet.InReplyToUser,
+		})
+	}
+	return out, nil
+}
+
+// tweetIDs returns the IDs of all your posts.
+func tweetIDs(archive string) ([]string, error) {
+	ps, err := posts(archive)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]string, len(ps))
+	for i, p := range ps {
+		ids[i] = p.id
+	}
+	return ids, nil
+}
+
+// replyIDs returns the IDs of your replies to other people's tweets. Replies
+// to your own tweets (threads) are kept.
+func replyIDs(archive, uid string) ([]string, error) {
+	ps, err := posts(archive)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, p := range ps {
+		if p.reply && p.replyToUser != uid {
+			ids = append(ids, p.id)
 		}
 	}
 	return ids, nil
@@ -281,7 +332,8 @@ func fatalFor(status int, body []byte) error {
 // ---------- processing ----------
 
 type job struct {
-	kind   string
+	kind   string // label used in logs and errors.log
+	state  string // progress file: done_<state>.txt
 	ids    []string
 	urlFor func(id string) string
 	ok     func(body []byte) bool
@@ -294,7 +346,7 @@ type opts struct {
 }
 
 func pending(j job, o opts) (todo []string, already int) {
-	done := loadDone(filepath.Join(o.stateDir, "done_"+j.kind+".txt"))
+	done := loadDone(filepath.Join(o.stateDir, "done_"+j.state+".txt"))
 	for _, id := range j.ids {
 		if !done[id] {
 			todo = append(todo, id)
@@ -314,7 +366,7 @@ func runJob(ctx context.Context, c *client, j job, o opts, el *errLog) error {
 		return nil
 	}
 
-	f, err := os.OpenFile(filepath.Join(o.stateDir, "done_"+j.kind+".txt"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+	f, err := os.OpenFile(filepath.Join(o.stateDir, "done_"+j.state+".txt"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err
 	}
@@ -365,17 +417,32 @@ func jsonField(body []byte, field string) (bool, bool) {
 
 func buildJobs(archive, apiBase, only string) ([]job, error) {
 	var jobs []job
-	if only == "" || only == "tweets" {
+	deleteTweet := func(kind string, ids []string) job {
+		return job{
+			kind:   kind,
+			state:  "tweets", // replies are tweets: share progress so they're never sent twice
+			ids:    ids,
+			urlFor: func(id string) string { return apiBase + "/tweets/" + id },
+			ok:     func(b []byte) bool { v, ok := jsonField(b, "deleted"); return ok && v },
+		}
+	}
+	switch only {
+	case "", "tweets":
 		ids, err := tweetIDs(archive)
 		if err != nil {
 			return nil, err
 		}
-		jobs = append(jobs, job{
-			kind:   "tweets",
-			ids:    ids,
-			urlFor: func(id string) string { return apiBase + "/tweets/" + id },
-			ok:     func(b []byte) bool { v, ok := jsonField(b, "deleted"); return ok && v },
-		})
+		jobs = append(jobs, deleteTweet("tweets", ids))
+	case "replies":
+		uid, err := accountID(archive)
+		if err != nil {
+			return nil, err
+		}
+		ids, err := replyIDs(archive, uid)
+		if err != nil {
+			return nil, err
+		}
+		jobs = append(jobs, deleteTweet("replies", ids))
 	}
 	if only == "" || only == "likes" {
 		uid, err := accountID(archive)
@@ -388,6 +455,7 @@ func buildJobs(archive, apiBase, only string) ([]job, error) {
 		}
 		jobs = append(jobs, job{
 			kind:   "likes",
+			state:  "likes",
 			ids:    ids,
 			urlFor: func(id string) string { return apiBase + "/users/" + uid + "/likes/" + id },
 			ok:     func(b []byte) bool { v, ok := jsonField(b, "liked"); return ok && !v },
@@ -398,7 +466,7 @@ func buildJobs(archive, apiBase, only string) ([]job, error) {
 
 func main() {
 	log.SetFlags(log.Ltime)
-	only := flag.String("only", "", "only process 'tweets' or 'likes'")
+	only := flag.String("only", "", "only process 'tweets' (all posts), 'replies' (your replies to others only) or 'likes'")
 	limit := flag.Int("limit", 0, "only process N items per type (for testing)")
 	run := flag.Bool("go", false, "actually delete (otherwise dry run)")
 	stateDir := flag.String("state-dir", ".", "where to write done_*.txt and errors.log")
@@ -415,8 +483,10 @@ func main() {
 		}
 		os.Exit(2)
 	}
-	if *only != "" && *only != "tweets" && *only != "likes" {
-		log.Fatal("✖ -only must be 'tweets' or 'likes'")
+	switch *only {
+	case "", "tweets", "replies", "likes":
+	default:
+		log.Fatal("✖ -only must be 'tweets', 'replies' or 'likes'")
 	}
 	if err := os.MkdirAll(*stateDir, 0o755); err != nil {
 		log.Fatal(err)
