@@ -93,12 +93,20 @@ func accountID(archive string) (string, error) {
 	return unquote(v.Account.AccountID), nil
 }
 
+// tweetIDs returns the IDs of all your posts: tweets.js (tweets, replies,
+// retweets) plus community-tweet.js (posts and replies made in Communities,
+// which X stores separately). Duplicates are removed.
 func tweetIDs(archive string) ([]string, error) {
-	items, err := loadYTD(archive, "tweets")
-	if err != nil {
-		return nil, err
+	var items []json.RawMessage
+	for _, name := range []string{"tweets", "community-tweet"} {
+		chunk, err := loadYTD(archive, name)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, chunk...)
 	}
 	ids := make([]string, 0, len(items))
+	seen := make(map[string]bool, len(items))
 	for _, it := range items {
 		var v struct {
 			Tweet struct {
@@ -113,7 +121,8 @@ func tweetIDs(archive string) ([]string, error) {
 		if id == "" {
 			id = unquote(v.Tweet.ID)
 		}
-		if id != "" {
+		if id != "" && !seen[id] {
+			seen[id] = true
 			ids = append(ids, id)
 		}
 	}
