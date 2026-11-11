@@ -111,7 +111,7 @@ Options must come **before** the archive directory.
 | Option                | Default | Description                                        |
 | --------------------- | ------- | -------------------------------------------------- |
 | `-go`                 | off     | Actually delete. Without it, the run is a dry run. |
-| `-only tweets\|likes` | both    | Process only tweets or only likes.                 |
+| `-only tweets\|replies\|likes` | tweets + likes | `tweets`: all your posts (tweets, replies, retweets). `replies`: only your replies to **other people's** tweets; your own tweets, retweets and threads are kept. `likes`: only likes. |
 | `-limit N`            | `0`     | Process at most N items per type (`0` = no limit). |
 | `-state-dir DIR`      | `.`     | Where to write `done_*.txt` and `errors.log`.      |
 
@@ -143,6 +143,17 @@ Options must come **before** the archive directory.
 ```
 
 Large accounts can take a long time to process, so run it somewhere it can keep going (`tmux`, `screen`, a server). If it stops, run the same command again to resume.
+
+### Deleting only your replies
+
+To delete your replies to other people's tweets and keep everything else (your own tweets, retweets and threads):
+
+```sh
+./x-cleanup -only replies ./twitter-archive       # dry run: count, cost, duration
+./x-cleanup -go -only replies ./twitter-archive   # delete
+```
+
+This also covers replies posted in Communities. Replies share `done_tweets.txt` with tweets, so a later `-only tweets` run skips them.
 
 ### With Docker
 

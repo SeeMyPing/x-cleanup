@@ -79,6 +79,32 @@ func TestTweetIDsIncludesCommunityPosts(t *testing.T) {
 	}
 }
 
+// -only replies keeps original tweets, retweets and replies in your own threads.
+func TestReplyIDsOnlyRepliesToOthers(t *testing.T) {
+	archive := writeArchive(t, 0, 0) // account id = 42
+	data := filepath.Join(archive, "data")
+	os.WriteFile(filepath.Join(data, "tweets.js"), []byte(`window.YTD.tweets.part0 = [
+		{"tweet":{"id_str":"1"}},
+		{"tweet":{"id_str":"2","in_reply_to_status_id_str":"100","in_reply_to_user_id_str":"7"}},
+		{"tweet":{"id_str":"3","in_reply_to_status_id_str":"1","in_reply_to_user_id_str":"42"}},
+		{"tweet":{"id_str":"4","full_text":"RT @someone: hi"}}
+	]`), 0o644)
+	os.WriteFile(filepath.Join(data, "community-tweet.js"), []byte(`window.YTD.community_tweet.part0 = [
+		{"tweet":{"id_str":"5","in_reply_to_status_id_str":"200","in_reply_to_user_id_str":"8"}}
+	]`), 0o644)
+
+	jobs, err := buildJobs(archive, "http://x/2", "replies")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(jobs) != 1 || jobs[0].kind != "replies" || jobs[0].state != "tweets" {
+		t.Fatalf("want a single 'replies' job sharing the tweets state, got %+v", jobs)
+	}
+	if got := strings.Join(jobs[0].ids, ","); got != "2,5" {
+		t.Fatalf("replies = %s, want 2,5", got)
+	}
+}
+
 // Fake X server: quota of 3 calls per 1 s window, per endpoint, + 429 when exceeded.
 type fakeX struct {
 	mu        sync.Mutex
